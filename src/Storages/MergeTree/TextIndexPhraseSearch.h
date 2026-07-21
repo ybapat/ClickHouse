@@ -1,38 +1,29 @@
 #pragma once
 
-#include <Storages/MergeTree/TextIndexPositionData.h>
+#include <Common/PODArray.h>
 
 #include <vector>
 
 namespace DB
 {
 
-/// Scalar phrase search using Roaringish two-phase intersection.
-///
-/// Given position lists for consecutive phrase terms, finds all documents
-/// where the terms appear in order with the specified positional gaps.
-///
-/// The algorithm intersects sorted arrays of RoaringishEntry values:
-///   Phase 1 (within-group): for matching (doc_id, group) keys,
-///     shift LHS bitmap left by the phrase offset and AND with RHS bitmap.
-///   Phase 2 (boundary-crossing): when the shift overflows past the bitmap width,
-///     check the wrapped bits against (doc_id, group+1) in the RHS.
-///
-/// Returns a sorted vector of unique doc_ids that match the phrase.
+/// Candidate-driven phrase matching over blocked positions.
 struct TextIndexPhraseSearch
 {
-    /// Intersect two position lists (struct-of-arrays) with a given positional shift.
-    /// For a phrase "A B", shift=1: term B must be at position (term A position + 1).
-    /// Returns a PositionList of entries where the phrase constraint is satisfied.
-    static PositionList intersect(const PositionList & lhs, const PositionList & rhs, UInt32 shift);
-
-    /// Multi-term phrase search.
-    /// position_lists[0] = positions for first term, [1] = second term, etc.
-    /// Returns sorted unique doc_ids where the full phrase matches.
-    static PaddedPODArray<UInt32> phraseSearch(const std::vector<PositionList> & position_lists);
-
-    /// Extract unique sorted doc_ids from a position list.
-    static PaddedPODArray<UInt32> extractDocIds(const PositionList & pl);
+    /// `candidates` are the ascending row ids containing every phrase term (the postings
+    /// intersection). For each unique phrase token u, `per_token_positions[u]` holds the
+    /// candidates' position lists concatenated in candidate order, delimited by
+    /// `per_token_offsets[u]`: candidate i's positions are
+    /// [i == 0 ? 0 : offsets[i - 1], offsets[i]) — the layout TextIndexBlockedPositionsCodec's
+    /// block decode emits. `term_to_unique` maps each phrase term (in phrase order) to its
+    /// unique-token index, so repeated terms reuse one decoded stream.
+    ///
+    /// Returns the candidates where some position p starts the phrase: term k at p + k for all k.
+    static PaddedPODArray<UInt32> matchCandidatePositions(
+        const PaddedPODArray<UInt32> & candidates,
+        const std::vector<PaddedPODArray<UInt32>> & per_token_offsets,
+        const std::vector<PaddedPODArray<UInt32>> & per_token_positions,
+        const std::vector<size_t> & term_to_unique);
 };
 
 }

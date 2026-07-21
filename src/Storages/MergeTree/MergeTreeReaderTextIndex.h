@@ -5,6 +5,7 @@
 #include <Storages/MergeTree/MergeTreeIndexText.h>
 #include <Storages/MergeTree/TextIndexPositionData.h>
 #include <Storages/MergeTree/TextIndexPositionCodec.h>
+#include <Storages/MergeTree/TextIndexBlockedPositionsCodec.h>
 #include <Storages/MergeTree/TextIndexCache.h>
 #include <Interpreters/ExpressionActions.h>
 
@@ -96,6 +97,13 @@ private:
     void applyPostingsPhrase(IColumn & column, const TextSearchQueryPtr & search_query, size_t row_offset, size_t num_rows);
     void initializePositionsStream();
 
+    /// Phrase search over blocked positions: intersects the phrase
+    /// tokens' postings into candidate rows, then decodes only the position blocks covering them.
+    PaddedPODArray<UInt32> phraseSearchBlocked(const TextSearchQuery & search_query);
+    /// One token's full posting list (embedded or all blocks) — the posting-rank space blocked
+    /// positions are addressed in.
+    PostingList readAllPostingsForToken(std::string_view token, const TokenPostingsInfo & token_info);
+
     using TextIndexGranulePtr = std::shared_ptr<const MergeTreeIndexGranuleText>;
 
     MergeTreeIndexWithCondition index;
@@ -129,6 +137,7 @@ private:
     size_t current_row = 0;
     size_t current_mark = 0;
     PaddedPODArray<UInt32> indices_buffer;
+    TextIndexBlockedPositionsCodec::DecodeScratch blocked_positions_scratch;
 
     bool is_initialized = false;
     /// Virtual columns that are always true.
